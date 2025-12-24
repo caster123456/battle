@@ -1,6 +1,5 @@
-
 import Phaser from "phaser";
-import { createNet } from "../net.js";
+import { createNet } from "../net.js"; // 仅作为兜底：如果没有从 LobbyScene 拿到 socket
 import { ClientState } from "../state.js";
 
 export default class BoardScene extends Phaser.Scene {
@@ -12,20 +11,89 @@ export default class BoardScene extends Phaser.Scene {
     this.tokenSprites = new Map();
     this.ui = {};
     this._tablesDrawn = false;
+
+    // 用于取消监听（避免场景切换后重复绑定）
+    this._onRoomState = null;
+    this._onError = null;
   }
 
   preload() {
-    // SVG background (optional)
     this.load.svg("boardSvg", new URL("../assets/map.svg", import.meta.url).toString());
   }
 
   create() {
-    this.socket = createNet();
+    // =========================
+    // 1) 从 LobbyScene 拿 socket/roomId/name
+    // =========================
+    this.socket = this.registry.get("socket");
+    const roomIdFromLobby = this.registry.get("roomId");
+    const nameFromLobby = this.registry.get("name");
 
-    ClientState.me.name = prompt("昵称", "xhm") || "player";
-    ClientState.me.roomId = prompt("房间号", "room1") || "room1";
-    this.socket.emit("JOIN_ROOM", { roomId: ClientState.me.roomId, name: ClientState.me.name });
+    // 兜底：如果你直接进 BoardScene（没走 Lobby），仍可运行
+    if (!this.socket) {
+      this.socket = createNet();
+    }
 
+    // 统一写回 ClientState（你原有逻辑依赖它）
+    ClientState.me.name = nameFromLobby || ClientState.me.name || "player";
+    ClientState.me.roomId = roomIdFromLobby || ClientState.me.roomId || "room1";
+
+    // ⚠️ 注意：
+    // 正常流程下 join-room 已在 LobbyScene 发过了，这里不要再发
+    // 但如果用户绕过 Lobby 直接进 BoardScene，则补发一次
+    if (!roomIdFromLobby || !nameFromLobby) {
+      const name = prompt("昵称", ClientState.me.name || "player") || "player";
+      const roomId = prompt("房间号", ClientState.me.roomId || "room1") || "room1";
+      ClientState.me.name = name;
+      ClientState.me.roomId = roomId;
+
+      // 兼容你的两套协议
+      this.socket.emit("join-room", { roomId, name });
+      this.socket.emit("JOIN_ROOM", { roomId, name });
+    }
+
+    // =========================
+    // 2) 创建游戏界面（你原来的内容）
+    // =========================
+    this.initGameUI();
+
+    // =========================
+    // 3) 绑定 socket 监听（保持你原逻辑）
+    // =========================
+    this._onRoomState = (state) => {
+      ClientState.room = state;
+      this.render(state);
+    };
+    this._onError = ({ message }) => alert(message);
+
+    // 兼容你现有服务端：ROOM_STATE / ERROR
+    this.socket.on("ROOM_STATE", this._onRoomState);
+    this.socket.on("ERROR", this._onError);
+
+    // 如果你未来把服务端改成小写 room-state，也能兼容
+    this.socket.on("room-state", this._onRoomState);
+    this.socket.on("error-msg", this._onError);
+
+    // 场景退出时解绑监听，避免重复
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      try {
+        if (this._onRoomState) {
+          this.socket.off("ROOM_STATE", this._onRoomState);
+          this.socket.off("room-state", this._onRoomState);
+        }
+        if (this._onError) {
+          this.socket.off("ERROR", this._onError);
+          this.socket.off("error-msg", this._onError);
+        }
+      } catch (e) {}
+    });
+  }
+
+  // =========================
+  // 把你原来 create() 里 “// Background” 之后那一大段 UI 原封不动搬到这里
+  // （我已经帮你搬好了）
+  // =========================
+  initGameUI() {
     // Background
     if (this.textures.exists("boardSvg")) {
       const bg = this.add.image(640, 360, "boardSvg");
@@ -42,16 +110,29 @@ export default class BoardScene extends Phaser.Scene {
 
     this.add.text(1040, 8, "Controls", { fontSize: "16px", color: "#e5e7eb" });
 
-    this.mkBtn(1040, 32, "[TEAM A]", "#f472b6", () => this.socket.emit("SET_TEAM", { roomId: ClientState.me.roomId, team: "A" }));
-    this.mkBtn(1120, 32, "[TEAM B]", "#38bdf8", () => this.socket.emit("SET_TEAM", { roomId: ClientState.me.roomId, team: "B" }));
-    this.mkBtn(1040, 56, "[START]", "#34d399", () => this.socket.emit("START_GAME", { roomId: ClientState.me.roomId }));
-    this.mkBtn(1120, 56, "[NEXT]", "#60a5fa", () => this.socket.emit("NEXT_PHASE", { roomId: ClientState.me.roomId }));
+    // ⚠️ 这里仍然用你原来的事件名（SET_TEAM/START_GAME/NEXT_PHASE...）
+    // 因为你服务端目前就是按这套跑的（你之前“能玩”的那套）
+    this.mkBtn(1040, 32, "[TEAM A]", "#f472b6", () =>
+      this.socket.emit("SET_TEAM", { roomId: ClientState.me.roomId, team: "A" })
+    );
+    this.mkBtn(1120, 32, "[TEAM B]", "#38bdf8", () =>
+      this.socket.emit("SET_TEAM", { roomId: ClientState.me.roomId, team: "B" })
+    );
+
+    // 你未来要把“开始游戏”从 BoardScene 移到 LobbyScene，这里按钮可以保留做调试
+    this.mkBtn(1040, 56, "[START]", "#34d399", () =>
+      this.socket.emit("START_GAME", { roomId: ClientState.me.roomId })
+    );
+    this.mkBtn(1120, 56, "[NEXT]", "#60a5fa", () =>
+      this.socket.emit("NEXT_PHASE", { roomId: ClientState.me.roomId })
+    );
 
     this.mkBtn(1040, 92, "[SUBMIT PLAN]", "#a78bfa", () => {
       const st = ClientState.room;
       if (!st) return;
       this.socket.emit("SUBMIT_PLAN", { roomId: st.roomId, plan: ClientState.planDraft });
     });
+
     this.mkBtn(1040, 116, "[RESOLVE ACTION]", "#fbbf24", () => {
       const st = ClientState.room;
       if (!st) return;
@@ -65,13 +146,6 @@ export default class BoardScene extends Phaser.Scene {
     this.mkBtn(1120, 204, "[ATTEMPT]", "#eab308", () => this.handleAttempt());
 
     this.mkBtn(1040, 660, "[CLEAR PLAN]", "#94a3b8", () => { ClientState.planDraft = []; });
-
-    this.socket.on("ROOM_STATE", (state) => {
-      ClientState.room = state;
-      this.render(state);
-    });
-
-    this.socket.on("ERROR", ({ message }) => alert(message));
   }
 
   mkBtn(x, y, text, color, onClick) {
@@ -81,7 +155,6 @@ export default class BoardScene extends Phaser.Scene {
   }
 
   drawTablesFromConfig(state) {
-    // Clear existing zones
     for (const z of this.tableZones.values()) z.destroy();
     this.tableZones.clear();
     this.tableRects.clear();
@@ -99,7 +172,6 @@ export default class BoardScene extends Phaser.Scene {
       const zone = this.add.zone(r.x, r.y, r.w, r.h).setOrigin(0).setInteractive();
       zone.on("pointerdown", () => {
         ClientState.selectedTableId = t.id;
-        // In planning: click table after selecting token to add a track
         if (state.phase === "PLANNING" && ClientState.selectedTokenId) {
           const tokenId = ClientState.selectedTokenId;
           if (ClientState.planDraft.find(x => x.tokenId === tokenId)) return;
@@ -163,7 +235,6 @@ export default class BoardScene extends Phaser.Scene {
     const actionStr = state.activeAction ? `${state.activeAction.pid.slice(0,4)}:${state.activeAction.tokenId}->${state.activeAction.toTableId}` : "none";
     const solveStr = state.solve ? `pickerTeam=${state.solve.pickerTeam}, pickedTable=${state.solve.pickedTableId ?? "none"}, pickedQ=${state.solve.pickedQuestionId ?? "none"}` : "";
 
-    // list questions on picked table for convenience
     let qList = "";
     if (state.phase === "SOLVE" && state.solve?.pickedTableId) {
       const t = state.tables[state.solve.pickedTableId];
