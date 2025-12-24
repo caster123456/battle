@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: classroom-battle-server
+    env: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGINS
+        value: "*"
