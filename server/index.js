@@ -42,30 +42,45 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
+
+  // 进入房间
   socket.on("join-room", ({ roomId, name }) => {
-  if (!rooms[roomId]) {
-    // 第一个人 = 房主
-    rooms[roomId] = {
-      hostId: socket.id,
-      phase: "LOBBY", // LOBBY | IN_GAME
-      mode: "SIX",    // SIX | SINGLE
-      players: {}
+    if (!roomId) return;
+
+    if (!rooms[roomId]) {
+      rooms[roomId] = {
+        hostId: socket.id,
+        phase: "LOBBY",
+        mode: "SIX",
+        players: {}
+      };
+    }
+
+    const room = rooms[roomId];
+
+    // 如果房主丢了/不存在，补一个房主
+    if (!room.hostId || !room.players[room.hostId]) {
+      room.hostId = socket.id;
+    }
+
+    room.players[socket.id] = {
+      id: socket.id,
+      name: name || "player",
+      ready: false
     };
-  }
 
-  const room = rooms[roomId];
+    socket.data.roomId = roomId;
+    socket.join(roomId);
 
-  room.players[socket.id] = {
-    id: socket.id,
-    name,
-    ready: false
-  };
+    const payload = {
+      ...room,
+      hostName: room.players?.[room.hostId]?.name || ""
+    };
 
-  socket.join(roomId);
+    io.to(roomId).emit("room-update", payload);
+  });
 
-  io.to(roomId).emit("room-update", room);
-});
-      // ===== 准备 / 取消准备 =====
+  // 准备/取消准备
   socket.on("toggle-ready", ({ roomId }) => {
     const room = rooms[roomId];
     if (!room) return;
@@ -75,38 +90,72 @@ io.on("connection", (socket) => {
 
     player.ready = !player.ready;
 
-    io.to(roomId).emit("room-update", room);
+    const payload = {
+      ...room,
+      hostName: room.players?.[room.hostId]?.name || ""
+    };
+
+    io.to(roomId).emit("room-update", payload);
   });
-    // ===== 房主开始游戏 =====
+
+  // 房主开始游戏
   socket.on("start-game", ({ roomId }) => {
     const room = rooms[roomId];
     if (!room) return;
 
-    // 只有房主能点开始
     if (socket.id !== room.hostId) return;
 
     const players = Object.values(room.players);
-
-    // 所有人必须准备
     const allReady = players.every(p => p.ready);
-
-    // 人数校验（单人测试 / 6人正式）
-    const enoughPlayers =
-      room.mode === "SINGLE" || players.length >= 6;
+    const enoughPlayers = room.mode === "SINGLE" || players.length >= 6;
 
     if (!allReady || !enoughPlayers) return;
 
     room.phase = "IN_GAME";
 
-    io.to(roomId).emit("game-start", room);
+    const payload = {
+      ...room,
+      hostName: room.players?.[room.hostId]?.name || ""
+    };
+
+    io.to(roomId).emit("game-start", payload);
   });
 
+  // 你原来的同步（留着）
   socket.on("state-update", ({ roomId, state }) => {
     socket.to(roomId).emit("state-update", state);
   });
 
+  // 断开连接：清理玩家、必要时转移房主
+  socket.on("disconnect", () => {
+    const roomId = socket.data.roomId;
+    if (!roomId) return;
+
+    const room = rooms[roomId];
+    if (!room) return;
+
+    delete room.players[socket.id];
+
+    const ids = Object.keys(room.players);
+    if (ids.length === 0) {
+      delete rooms[roomId];
+      return;
+    }
+
+    if (room.hostId === socket.id) {
+      room.hostId = ids[0];
+    }
+
+    const payload = {
+      ...room,
+      hostName: room.players?.[room.hostId]?.name || ""
+    };
+
+    io.to(roomId).emit("room-update", payload);
+  });
 
 });
+
 
 /**
  * ===== 启动服务 =====
