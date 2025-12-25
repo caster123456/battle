@@ -60,12 +60,27 @@ function buildRoomState(roomId, room) {
   return {
     roomId,
     phase: room.phase,
+    round: room.round ?? 0,
+
+    // 选学科草稿
     draft: room.draft || null,
+
+    // 玩家信息（包含 team/seat/subject/card）
     players: room.players,
+
     hostId: room.hostId,
     mode: room.mode,
+
+    // ✅ 正式游戏需要的最小字段（防止前端旧逻辑崩）
+    map: room.game?.map || null,
+    tables: room.game?.tables || null,
+    tokens: room.game?.tokens || null,
+    rules: room.game?.rules || null,
+    contestedTableIds: room.game?.contestedTableIds || [],
+    activeAction: room.game?.activeAction || null,
   };
 }
+
 
 function emitRoomStateToRoom(roomId) {
   const room = rooms[roomId];
@@ -133,6 +148,72 @@ function startPickSubjectPhase(roomId) {
     turnIndex: 0,
     currentPlayerId: order[0],
   };
+
+  return true;
+}
+function makeEmptyCards(count) {
+  // 空白卡：技能/特性都为空，先占位
+  const cards = [];
+  for (let i = 0; i < count; i++) {
+    cards.push({
+      id: `EMPTY_${i + 1}`,
+      name: `空白卡${i + 1}`,
+      desc: "（占位卡，暂无技能）",
+      skill: null,
+      trait: null,
+    });
+  }
+  return cards;
+}
+
+function shuffleInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * 学科全选完 -> 记录到 player.subject
+ * 然后跳过真实选牌：随机发空白卡 -> 直接进入 IN_GAME
+ */
+function finishSubjectAndStartGame(roomId) {
+  const room = rooms[roomId];
+  if (!room || !room.draft) return false;
+
+  const d = room.draft;
+  if (room.phase !== "PICK_SUBJECT") return false;
+
+  // 是否都选完：6人局就是 order.length；你放宽人数也没事
+  const total = d.order?.length || Object.keys(room.players).length;
+  const pickedCount = Object.keys(d.picksByPlayer || {}).length;
+  if (pickedCount < total) return false;
+
+  // 1) 把学科写入到玩家身上（前端更好显示）
+  for (const pid of Object.keys(room.players)) {
+    room.players[pid].subject = d.picksByPlayer?.[pid] || null;
+  }
+
+  // 2) “跳过选牌”：发空白卡
+  const ids = Object.keys(room.players);
+  const deck = shuffleInPlace(makeEmptyCards(ids.length));
+  ids.forEach((pid, idx) => {
+    room.players[pid].card = deck[idx]; // 每人一张占位卡
+  });
+
+  // 3) 进入正式游戏
+  room.phase = "IN_GAME";
+  room.round = 1;
+
+  // ✅ 给 BoardScene 一个最小可用的 gameState，避免你旧逻辑报错
+  room.game = room.game || {};
+  room.game.map = room.game.map || { tables: [] };
+  room.game.tables = room.game.tables || {};
+  room.game.tokens = room.game.tokens || {};
+  room.game.rules = room.game.rules || { maxTracksPerRound: 3 };
+  room.game.contestedTableIds = room.game.contestedTableIds || [];
+  room.game.activeAction = room.game.activeAction || null;
 
   return true;
 }
@@ -243,12 +324,12 @@ io.on("connection", (socket) => {
 
     if (d.turnIndex >= d.order.length || d.pool.length === 0) {
       d.phase = "DONE";
-      room.phase = "PICK_CARD"; // 下一阶段占位
-      // 你后面要做选编号牌，就从这里接着写
+    
+      finishSubjectAndStartGame(roomId);
     } else {
       d.currentPlayerId = d.order[d.turnIndex];
     }
-
+    
     emitRoomUpdate(roomId);
     emitRoomStateToRoom(roomId);
 
