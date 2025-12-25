@@ -113,7 +113,7 @@ export default class BoardScene extends Phaser.Scene {
       // 等比缩放铺满画布（可能会留边/或裁切一点，看你地图比例）
       const sx = 1280 / bg.width;
       const sy = 720 / bg.height;
-      const scale = Math.min(sx, sy); // ✅ 用 max：尽量铺满（会裁边）
+      const scale = Math.min(sx, sy)*1.5; // ✅ 用 max：尽量铺满（会裁边）
       bg.setScale(scale);
 
       bg.setAlpha(1);     // ✅ 不要透明
