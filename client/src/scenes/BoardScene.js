@@ -14,6 +14,12 @@ export default class BoardScene extends Phaser.Scene {
 
     this._onRoomState = null;
     this._onError = null;
+    // 选学科 UI
+    this.subjectUI = {
+      container: null,
+      title: null,
+      buttons: [],
+    };
 
     // 背景图引用
     this.bg = null;
@@ -128,9 +134,118 @@ export default class BoardScene extends Phaser.Scene {
       color: "#e2e8f0",
       lineSpacing: 6,
     });
+    this.buildSubjectPanel(); // ✅ 构建选学科面板（默认隐藏，render里控制显示）
 
     // ✅ 右侧按钮先不加（你说先不用）
     // 如果你后面要恢复，只需要把你原来的 mkBtn 那些再搬回来
+  }
+  // ========== 选学科 UI 面板 ==========
+
+  buildSubjectPanel() {
+    // 防重复
+    if (this.subjectUI.container) return;
+  
+    const c = this.add.container(0, 0).setDepth(9999);
+    this.subjectUI.container = c;
+  
+    // 半透明底板
+    const bg = this.add.rectangle(640, 610, 980, 170, 0x0b1220, 0.85)
+      .setStrokeStyle(2, 0x334155, 1);
+  
+    // 标题
+    const title = this.add.text(170, 540, "", {
+      fontSize: "20px",
+      color: "#ffffff",
+    });
+  
+    c.add(bg);
+    c.add(title);
+    this.subjectUI.title = title;
+  
+    // 默认隐藏
+    c.setVisible(false);
+  }
+  
+  clearSubjectButtons() {
+    for (const b of this.subjectUI.buttons) {
+      try { b.destroy(); } catch (e) {}
+    }
+    this.subjectUI.buttons = [];
+  }
+  
+  renderSubjectDraft(state) {
+    // 只在 PICK_SUBJECT 才显示
+    const d = state?.draft;
+    if (!d || state.phase !== "PICK_SUBJECT") {
+      if (this.subjectUI.container) this.subjectUI.container.setVisible(false);
+      return;
+    }
+  
+    // 确保面板存在
+    this.buildSubjectPanel();
+    this.subjectUI.container.setVisible(true);
+  
+    const players = state.players || {};
+    const me = players[this.socket.id];
+    const currentId = d.currentPlayerId;
+  
+    const currentPlayer = players[currentId];
+    const currentName = currentPlayer?.name || "未知";
+    const currentTeam = currentPlayer?.team || "?";
+    const currentSeat = currentPlayer?.seat || "?";
+  
+    const myName = me?.name || ClientState.me.name;
+    const myTeam = me?.team || "?";
+  
+    // 是否轮到我
+    const isMyTurn = this.socket.id === currentId;
+  
+    // 标题文字
+    const pickedMe = d.picksByPlayer?.[this.socket.id];
+    const pickedText = pickedMe ? `你已选择：${pickedMe}` : "你还未选择";
+    const leftText = (d.pool || []).join("、") || "（无）";
+  
+    this.subjectUI.title.setText(
+      `阶段：随机分队后【选学科】\n` +
+      `当前轮到：${currentName}（队伍${currentTeam} / 座位${currentSeat}）  ${isMyTurn ? "👉轮到你选" : "⏳等待中"}\n` +
+      `${pickedText}    剩余：${leftText}`
+    );
+  
+    // 重建按钮
+    this.clearSubjectButtons();
+  
+    const pool = d.pool || [];
+    const startX = 240;
+    const y = 625;
+    const gap = 120;
+  
+    pool.forEach((subject, i) => {
+      const x = startX + i * gap;
+  
+      const btn = this.add.text(x, y, subject, {
+        fontSize: "22px",
+        color: "#34d399",
+        backgroundColor: "#0f172a",
+        padding: { x: 12, y: 10 },
+      });
+  
+      // 只有轮到的玩家能点
+      if (isMyTurn) {
+        btn.setInteractive({ useHandCursor: true });
+        btn.on("pointerdown", () => {
+          this.socket.emit("pick-subject", {
+            roomId: ClientState.me.roomId,
+            subject,
+          });
+        });
+        btn.setAlpha(1);
+      } else {
+        btn.setAlpha(0.35);
+      }
+  
+      this.subjectUI.container.add(btn);
+      this.subjectUI.buttons.push(btn);
+    });
   }
 
   // ====== 原来的按钮方法保留（后面要用可以直接恢复按钮）======
@@ -241,6 +356,7 @@ export default class BoardScene extends Phaser.Scene {
     );
 
     this.placeTokens(state);
+    this.renderSubjectDraft(state);
   }
 
   // 下面这些先保留（你后面流程会用到）
