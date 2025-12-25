@@ -113,7 +113,7 @@ export default class BoardScene extends Phaser.Scene {
       // 等比缩放铺满画布（可能会留边/或裁切一点，看你地图比例）
       const sx = 1280 / bg.width;
       const sy = 720 / bg.height;
-      const scale = Math.max(sx, sy); // ✅ 用 max：尽量铺满（会裁边）
+      const scale = Math.min(sx, sy); // ✅ 用 max：尽量铺满（会裁边）
       bg.setScale(scale);
 
       bg.setAlpha(1);     // ✅ 不要透明
@@ -126,19 +126,12 @@ export default class BoardScene extends Phaser.Scene {
     }
 
     // ✅ 2) 中文 UI（左上角）
-    this.ui.phase = this.add.text(16, 12, "阶段：", {
-      fontSize: "20px",
-      color: "#ffffff",
-    });
-    this.ui.round = this.add.text(16, 40, "回合：", {
-      fontSize: "20px",
-      color: "#ffffff",
-    });
-    this.ui.tip = this.add.text(16, 76, "", {
-      fontSize: "14px",
-      color: "#e2e8f0",
-      lineSpacing: 6,
-    });
+    const titleStyle = { fontSize: "20px", color: "#111827" }; // 深黑
+    const tipStyle = { fontSize: "14px", color: "#334155", lineSpacing: 6 }; // 深灰
+  
+    this.ui.phase = this.add.text(16, 12, "阶段：", titleStyle);
+    this.ui.round = this.add.text(16, 40, "回合：", titleStyle);
+    this.ui.tip = this.add.text(16, 76, "", tipStyle);
     this.buildSubjectPanel(); // ✅ 构建选学科面板（默认隐藏，render里控制显示）
 
     // ✅ 右侧按钮先不加（你说先不用）
