@@ -108,7 +108,7 @@ export default class BoardScene extends Phaser.Scene {
       bg.setOrigin(0.5);
 
       // 居中
-      bg.setPosition(1280 / 2, 720 / 2 - 60);
+      bg.setPosition(1280 / 2, 720 / 2 + 100);
 
       // 等比缩放铺满画布（可能会留边/或裁切一点，看你地图比例）
       const sx = 1280 / bg.width;
