@@ -65,6 +65,14 @@ export default class BoardScene extends Phaser.Scene {
       ClientState.room = state;
       this.render(state);
     });
+    this.socket.on("game-start", () => {
+      this.socket.emit("request-room-state", { roomId: ClientState.me.roomId });
+    })
+    // ✅ 关键修复：BoardScene 创建后主动拉取状态（房主切场景最容易漏接一次 ROOM_STATE）
+    const rid = ClientState.me.roomId;
+    this.socket.emit("request-room-state", { roomId: rid });
+    setTimeout(() => this.socket.emit("request-room-state", { roomId: rid }), 200);
+    setTimeout(() => this.socket.emit("request-room-state", { roomId: rid }), 800);
 
     this.socket.on("ERROR", (e) => console.warn("❌ ERROR:", e));
     this.socket.on("error-msg", (e) => console.warn("❌ error-msg:", e));
