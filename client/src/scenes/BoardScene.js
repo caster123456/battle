@@ -26,8 +26,9 @@ export default class BoardScene extends Phaser.Scene {
   }
 
   preload() {
-    // ✅ 地图背景：把这里改成你实际的 svg 文件名
-    // 如果你 assets 里是 “绘图v1.svg”，就改成：
+    this.load.on("loaderror", (file) => {
+      console.error("❌ loaderror:", file?.key, file?.src);
+    });
     // this.load.svg("boardSvg", new URL("../assets/绘图v1.svg", import.meta.url).toString());
     this.load.svg("boardSvg", new URL("../assets/map.svg", import.meta.url).toString());
   }
@@ -65,6 +66,7 @@ export default class BoardScene extends Phaser.Scene {
     // 3) 绑定 socket 监听
     // =========================
     this._onRoomState = (state) => {
+      console.log("✅ ROOM_STATE received:", state);
       ClientState.room = state;
       this.render(state);
     };
@@ -76,6 +78,8 @@ export default class BoardScene extends Phaser.Scene {
     // 兼容未来事件名
     this.socket.on("room-state", this._onRoomState);
     this.socket.on("error-msg", this._onError);
+    // ✅ 关键：主动向服务端要一次最新状态（避免错过 ROOM_STATE）
+    this.socket.emit("request-room-state", { roomId: ClientState.me.roomId });
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       try {
