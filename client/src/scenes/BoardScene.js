@@ -270,6 +270,10 @@ export default class BoardScene extends Phaser.Scene {
             roomId: ClientState.me.roomId,
             subject,
           });
+          this.socket.emit("request-room-state", { roomId: ClientState.me.roomId });
+          setTimeout(() => {
+            this.socket.emit("request-room-state", { roomId: ClientState.me.roomId });
+          }, 200);
         });
       } else {
         btn.setAlpha(0.35);
