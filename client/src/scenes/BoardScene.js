@@ -102,6 +102,7 @@ export default class BoardScene extends Phaser.Scene {
   initGameUI() {
     // ✅ 1) 地图背景（清晰显示、铺满、置底）
     // 注意：svg 加载成功后 textures 一定存在；若没出现，说明文件名/路径不对
+    this.cameras.main.setBackgroundColor("#ffffff");
     if (this.textures.exists("boardSvg")) {
       const bg = this.add.image(0, 0, "boardSvg");
       bg.setOrigin(0.5);
